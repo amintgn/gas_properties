@@ -1,0 +1,77 @@
+import numpy as np
+from sympy import symbols, exp, lambdify
+
+def DAK(Pressure, T, Pc, Tc):
+    """
+    Calculates the compressibility factor Z using the Dranchuk-Abou-Kassem EOS.
+
+    Parameters:
+    - Pressure: A single pressure (float) or array of pressures in Pa
+    - T: Temperature in Kelvin
+    - Pc: Critical pressure in Pa
+    - Tc: Critical temperature in Kelvin
+
+    Returns:
+    - Z: A single compressibility factor (float) or list of factors
+    """
+
+    # Ensure inputs are float arrays to allow safe in-place operations
+    is_scalar = np.isscalar(Pressure)
+    Pressure_list = np.array([Pressure], dtype=np.float64) if is_scalar else np.array(Pressure, dtype=np.float64)
+
+    # Convert SI units to field units: Pa → psia, K → Rankine
+    Pressure_list *= 0.0001450377         # Pa → psia
+    Pc *= 0.0001450377                    # Pa → psia
+    T_R = T * 1.8                         # K → Rankine
+    Tc_R = Tc * 1.8                       # K → Rankine
+
+    Z_list = []
+
+    for P in Pressure_list:
+        Pr = P / Pc
+        Tr = T_R / Tc_R
+
+        # DAK constants
+        A1 = 0.3265
+        A2 = -1.0700
+        A3 = -0.5339
+        A4 = 0.01569
+        A5 = -0.05165
+        A6 = 0.5475
+        A7 = -0.7361
+        A8 = 0.1844
+        A9 = 0.1056
+        A10 = 0.6134
+        A11 = 0.7210
+
+        c1 = A1 + (A2 / Tr) + (A3 / Tr**3) + (A4 / Tr**4) + (A5 / Tr**5)
+        c2 = A6 + (A7 / Tr) + (A8 / Tr**2)
+        c3 = A9 * ((A7 / Tr) + (A8 / Tr**2))
+
+        # Bisection method
+        brack1 = 1e-2
+        brack2 = 4
+        tol = 1e-4
+        max_iter = 1000
+        z_sym = symbols('z')
+
+        for _ in range(max_iter):
+            zguess = (brack1 + brack2) / 2
+            Rrguess = (0.27 * Pr) / (zguess * Tr)
+            c4 = A10 * (1 + A11 * Rrguess**2) * (Rrguess**2 / Tr**3) * np.exp(-A11 * Rrguess**2)
+
+            Rr = (0.27 * Pr) / (z_sym * Tr)
+            f_expr = z_sym + (c3 * Rr**5) - (c2 * Rr**2) - (c1 * Rr) - c4 - 1
+            f_func = lambdify(z_sym, f_expr, 'numpy')
+            fz = f_func(zguess)
+
+            if abs(fz) <= tol:
+                break
+            elif fz < 0:
+                brack1 = zguess
+            else:
+                brack2 = zguess
+
+        Z_list.append(zguess)
+
+    return Z_list[0] if is_scalar else Z_list
